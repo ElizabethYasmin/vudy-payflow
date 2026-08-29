@@ -1,36 +1,123 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PayGate B2B — prototipo para el assessment técnico de Vudy
 
-## Getting Started
+Prototipo de **aprobación de pagos B2B con liquidación real en Vudy**. Una
+pyme registra una solicitud de pago a un proveedor; al aprobarla, el backend
+llama a la API de Vudy para liquidar el pago on-chain y deja un registro de
+auditoría de todo lo que pasó.
 
-First, run the development server:
+Construido para el proceso de Full Stack Sr. en Vudy — el stack elegido
+(Next.js + TypeScript + Node.js) es intencionalmente el mismo que pide la
+vacante, en vez de una herramienta 100% no-code, porque el rol es justo tomar
+prototipos vibecodeados y llevarlos a un estado estable/desplegable.
+
+## Por qué esta idea
+
+De los dolores sugeridos en el brief ("conciliación multi-moneda", "remesas
+con enrutamiento", "aprobación de pagos B2B"), elegí **aprobación de pagos
+B2B** porque:
+
+- Encaja con el foco de Vudy en pymes / mid-market / instituciones B2B.
+- El concepto de "más de un par de ojos antes de liquidarse" mapea
+  directamente a algo nativo de blockchain (autorización explícita antes de
+  una acción irreversible), sin tener que inventar una narrativa.
+- Es la más viable de construir con integración *real* a la API de Vudy en
+  un día, dejando tiempo para documentar el proceso con cuidado.
+
+## Cómo funciona
+
+1. **Nueva solicitud** (`/new`) — un "Solicitante" registra proveedor, wallet
+   destino, monto, moneda, chain y motivo. Queda en estado `pending`.
+2. **Dashboard** (`/`) — lista las solicitudes y muestra el balance real de
+   la wallet configurada (vía Vudy).
+3. **Aprobar** — dispara la llamada a Vudy (`send/create`) para liquidar el
+   pago al proveedor. Si Vudy responde, el estado pasa a `settled` y se
+   guarda la referencia de la transacción. Si falla, pasa a `failed` con el
+   motivo. Toda transición queda en el log de auditoría de la solicitud.
+4. **Rechazar** — corta el flujo sin llamar a Vudy.
+
+## Stack
+
+- **Next.js 16 (App Router) + TypeScript** — frontend y backend (API routes)
+  en un solo proyecto: exactamente el stack "imprescindible" del rol.
+- **Tailwind CSS** para la UI.
+- **Estado en memoria** (`lib/store.ts`) en vez de PostgreSQL — ver
+  [Simplificaciones](#simplificaciones-conscientes-para-1-día) abajo.
+
+## Integración con la API de Vudy
+
+Documentación real usada: `https://docs.vudy.services`. Cliente en
+[`lib/vudy.ts`](./lib/vudy.ts).
+
+| Endpoint | Método | Patrón de auth | Uso en la app |
+|---|---|---|---|
+| `/v1/wallet/portfolio?wallets={addr}` | GET | A (`x-api-key`) | Balance mostrado en el dashboard |
+| `/channel/vudy/send/create` | POST | B (`x-api-key` + `x-profile-id` + `x-team-id`) | Liquidar el pago al aprobar una solicitud |
+
+### Modo mock
+
+El Patrón B requiere `x-profile-id` y `x-team-id`. Al momento de construir
+esto, la documentación no explicaba claramente cómo obtenerlos (varias
+páginas de referencia estaban en construcción — ver feedback abajo). Para no
+bloquear el resto del prototipo, `lib/vudy.ts` cae automáticamente a un
+**modo simulado** cuando faltan credenciales, y lo marca explícitamente en la
+respuesta (`mock: true`, badge "(simulado)" en la UI, evento de auditoría
+"Simulado — sin credenciales/IDs de Vudy configurados"). En cuanto se
+confirmen los IDs, basta con completarlos en `.env.local` para que la misma
+llamada sea real.
+
+### Feedback honesto sobre la documentación (pedido explícito del reto)
+
+- Varias páginas de referencia clave devuelven un placeholder ("esta página
+  estará disponible pronto"): *Quick Start*, *Create Request* (Payment
+  Requests), *Send Preview*, *Response Format*, *Environments*. Hubo que
+  reconstruir el flujo cruzando el *Overview* de cada sección con páginas
+  hermanas que sí estaban completas (ej. `send/gas-sponsor`).
+- No quedó claro dónde se obtienen `x-profile-id` / `x-team-id` para el
+  Patrón B — no hay un endpoint de referencia documentado ni un ejemplo
+  end-to-end completo (auth → IDs → llamada de negocio) en un solo lugar.
+- No hay mención de un ambiente sandbox/testnet separado de producción —
+  quedó ambiguo si las pruebas de integración consumen saldo real.
+- Lo que sí funcionó bien: los endpoints que están documentados (`portfolio`,
+  `send/create`, `gas-sponsor`) traen ejemplos de request/response completos
+  y suficientes para integrar sin adivinar.
+
+## Simplificaciones conscientes para 1 día
+
+| Simplificación | Qué se haría en producción |
+|---|---|
+| Estado en memoria (`globalThis`) | PostgreSQL: tablas `payment_requests` + `audit_log`, con el mismo modelo de `lib/types.ts` |
+| Una sola aprobación liquida | Regla configurable de N aprobadores (ej. 2 de 3), con roles reales y autenticación |
+| Sin autenticación de usuarios | Auth real (ej. NextAuth) + roles (solicitante/aprobador) por equipo |
+| Llamada a Vudy sin reintentos | Idempotencia explícita (evitar liquidar dos veces si se reintenta la aprobación) + circuit breaker ante fallas repetidas del proveedor |
+| Sin tests automatizados | Tests de integración para el cliente de Vudy (mock del `fetch`) y de la máquina de estados |
+| Optimización de llamadas RPC/nodos | Se evaluaría un servicio en Python si el volumen de consultas on-chain lo justifica (mencionado en el perfil como bonus) |
+
+## Cómo correrlo local
 
 ```bash
+npm install
+cp .env.local.example .env.local   # completa tu VUDY_API_KEY, wallet, etc.
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Sin `.env.local` completo, la app funciona igual en modo simulado (dummy
+data + mock de Vudy) — no se queda bloqueada.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Estructura
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+app/
+  page.tsx                     # dashboard
+  new/page.tsx                 # formulario de nueva solicitud
+  api/
+    balance/route.ts           # GET balance (Vudy portfolio)
+    requests/route.ts          # GET lista / POST crear
+    requests/[id]/approve/     # POST aprobar -> liquida en Vudy
+    requests/[id]/reject/      # POST rechazar
+components/
+  Nav.tsx, StatusBadge.tsx
+lib/
+  types.ts                     # modelo de dominio
+  store.ts                     # persistencia en memoria (temporal)
+  vudy.ts                      # cliente de la API de Vudy + modo mock
+```
