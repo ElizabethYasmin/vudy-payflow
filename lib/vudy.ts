@@ -19,11 +19,13 @@ const VUDY_API_KEY = process.env.VUDY_API_KEY;
 const VUDY_PROFILE_ID = process.env.VUDY_PROFILE_ID;
 const VUDY_TEAM_ID = process.env.VUDY_TEAM_ID;
 
-const MOCK_MODE =
-  process.env.VUDY_MOCK_MODE === "true" ||
-  !VUDY_API_KEY ||
-  !VUDY_PROFILE_ID ||
-  !VUDY_TEAM_ID;
+const FORCE_MOCK = process.env.VUDY_MOCK_MODE === "true";
+
+// Pattern A (portfolio/balance) only needs the API key.
+const MOCK_PORTFOLIO = FORCE_MOCK || !VUDY_API_KEY;
+
+// Pattern B (send/create) needs the API key *and* the team context.
+const MOCK_SEND = FORCE_MOCK || !VUDY_API_KEY || !VUDY_PROFILE_ID || !VUDY_TEAM_ID;
 
 export interface PortfolioToken {
   totalUsdBalance: number;
@@ -72,7 +74,7 @@ function patternBHeaders(): HeadersInit {
 
 /** GET /v1/wallet/portfolio?wallets={address} */
 export async function getPortfolio(walletAddress: string): Promise<PortfolioResult> {
-  if (MOCK_MODE) {
+  if (MOCK_PORTFOLIO) {
     return {
       wallet: walletAddress,
       totalUsdBalance: 6.04,
@@ -105,7 +107,7 @@ export async function getPortfolio(walletAddress: string): Promise<PortfolioResu
 
 /** POST /channel/vudy/send/create */
 export async function createSend(input: CreateSendInput): Promise<CreateSendResult> {
-  if (MOCK_MODE) {
+  if (MOCK_SEND) {
     return {
       sendId: `mock-send-${Date.now()}`,
       status: "simulated",
@@ -140,6 +142,7 @@ export async function createSend(input: CreateSendInput): Promise<CreateSendResu
 }
 
 export const vudyConfig = {
-  mockMode: MOCK_MODE,
+  mockPortfolio: MOCK_PORTFOLIO,
+  mockSend: MOCK_SEND,
   baseUrl: VUDY_BASE_URL,
 };
