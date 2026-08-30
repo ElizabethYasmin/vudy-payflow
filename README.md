@@ -1,5 +1,7 @@
 # PayGate B2B — prototipo para el assessment técnico de Vudy
 
+🔗 **Demo en vivo**: https://vudy-payflow.vercel.app
+
 Prototipo de **aprobación de pagos B2B con liquidación real en Vudy**. Una
 pyme registra una solicitud de pago a un proveedor; al aprobarla, el backend
 llama a la API de Vudy para liquidar el pago on-chain y deja un registro de
@@ -139,7 +141,7 @@ ya están en `.env.local` y el Patrón B está activo.
 
 | Simplificación | Qué se haría en producción |
 |---|---|
-| Estado en memoria (`globalThis`) | PostgreSQL: tablas `payment_requests` + `audit_log`, con el mismo modelo de `lib/types.ts` |
+| Estado en memoria (`globalThis`) | PostgreSQL: tablas `payment_requests` + `audit_log`, con el mismo modelo de `lib/types.ts`. **Observado en el deploy de Vercel**: al ser funciones serverless (cada invocación puede correr en una instancia distinta y efímera), el estado en memoria puede reiniciarse entre visitas — es exactamente el escenario que justifica esta simplificación, no algo que solo se argumenta en teoría |
 | Una sola aprobación liquida | Regla configurable de N aprobadores (ej. 2 de 3), con roles reales y autenticación |
 | Sin autenticación de usuarios | Auth real (ej. NextAuth) + roles (solicitante/aprobador) por equipo |
 | Llamada a Vudy sin reintentos | Idempotencia explícita (evitar liquidar dos veces si se reintenta la aprobación) + circuit breaker ante fallas repetidas del proveedor |
