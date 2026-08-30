@@ -52,11 +52,19 @@ Documentación real usada: `https://docs.vudy.services`. Cliente en
 |---|---|---|---|---|
 | `/v1/wallet/portfolio?wallets={addr}` | GET | A (`x-api-key`) | Balance mostrado en el dashboard | ✅ real, verificado contra la cuenta de prueba |
 | `/v1/config/chains` | GET | A (`x-api-key`) | Poblar los selectores de chain/moneda en "Nueva solicitud" con datos reales de Vudy (en vez de opciones inventadas a mano) | ✅ real, verificado |
-| `/channel/vudy/send/create` | POST | B (`x-api-key` + `x-profile-id` + `x-team-id`) | Liquidar el pago al aprobar una solicitud | ⏳ mock — ver abajo |
+| `/channel/vudy/send/create` | POST | B (`x-api-key` + `x-profile-id` + `x-team-id`) | Liquidar el pago al aprobar una solicitud | ⚠️ conectado con el formato real, pero el propio servidor de Vudy falla (`500`) — ver hallazgos abajo |
 
 `portfolio` y `config/chains` solo requieren el Patrón A (la API key), así que
 ya están 100% conectados a la API real de Vudy — no dependen de que Vudy
 responda sobre `profile-id`/`team-id`.
+
+**Sobre `send/create`:** se consiguieron `profile-id` y `team-id` por cuenta
+propia (login por email, ver hallazgos abajo) y se probó un envío real de
+0.1 USDT en Polygon a una segunda wallet propia, con el balance verificado
+antes/después. El servidor de Vudy rechaza la llamada con un error 500 de
+su lado (ver "Hallazgo más importante" abajo) — no se perdió ni movió
+ningún fondo. El código queda listo con el formato correcto; en cuanto Vudy
+resuelva ese error, la misma llamada debería liquidar de verdad.
 
 ### Modo mock
 
@@ -79,19 +87,50 @@ pendiente de intentarlo.
 
 ### Feedback honesto sobre la documentación (pedido explícito del reto)
 
+- **Hallazgo más importante — el schema documentado de `send/create` no
+  coincide con el que la API real exige.** La doc describe el body como
+  `{ sendWallet, chain, token, recipients, note }` en el nivel superior.
+  Probando contra la API real, el servidor lo rechaza (`400
+  LIB_BODY_PARSE_02`) y exige en su lugar:
+  ```json
+  {
+    "targetAddress": "0x...",
+    "amount": 0.1,
+    "channelParams": { "chain": "polygon", "token": "USDT", "recipients": [...] }
+  }
+  ```
+  Esto se descubrió por prueba y error (leyendo los mensajes de validación
+  del propio servidor), no porque la doc lo explicara. `lib/vudy.ts` ya
+  arma el body con el formato real.
+- **Segundo hallazgo — el endpoint falla consistentemente en producción.**
+  Con el formato correcto, `send/create` devuelve `500
+  LIB_PRICE_FETCH_04: "Failed to get token price from Alchemy"` — su backend
+  intenta cotizar el token nativo (`POL`) contra un proveedor externo
+  (Alchemy) y esa llamada devuelve HTML en vez de JSON. Se probó dos veces
+  con unos segundos de diferencia, mismo error ambas veces → no parece un
+  hiccup pasajero. **Esto no se pudo resolver desde el lado del cliente**:
+  es un bug/caída de una dependencia en la infraestructura de Vudy. Se
+  verificó con el balance antes/después (`GET /v1/wallet/portfolio`) que
+  ningún fondo se movió — el error ocurre antes de tocar la blockchain.
 - Varias páginas de referencia clave devuelven un placeholder ("esta página
   estará disponible pronto"): *Quick Start*, *Create Request* (Payment
-  Requests), *Send Preview*, *Response Format*, *Environments*. Hubo que
-  reconstruir el flujo cruzando el *Overview* de cada sección con páginas
-  hermanas que sí estaban completas (ej. `send/gas-sponsor`).
-- No quedó claro dónde se obtienen `x-profile-id` / `x-team-id` para el
-  Patrón B — no hay un endpoint de referencia documentado ni un ejemplo
-  end-to-end completo (auth → IDs → llamada de negocio) en un solo lugar.
+  Requests), *Send Preview*, *Response Format*, *Environments*, *Wallet
+  Types*, *EVM Allowances*, *API Keys & Webhooks*. Hubo que reconstruir el
+  flujo cruzando el *Overview* de cada sección con páginas hermanas que sí
+  estaban completas (ej. `send/gas-sponsor`, `api/config`, `api/profile`).
+- No hay un endpoint de referencia documentado con un ejemplo end-to-end
+  completo (auth → IDs de equipo → llamada de negocio) en un solo lugar.
+  `x-profile-id`/`x-team-id` se terminaron obteniendo combinando dos páginas
+  distintas: el login por email (`/v1/auth/send-otp` + `/verify-otp`, en
+  *Getting Started → Authentication*) y el endpoint de perfil (`GET
+  /v1/profile`, en *API Reference*) — nada en la doc conecta ambos pasos
+  explícitamente como el camino a seguir.
 - No hay mención de un ambiente sandbox/testnet separado de producción —
-  quedó ambiguo si las pruebas de integración consumen saldo real.
-- Lo que sí funcionó bien: los endpoints que están documentados (`portfolio`,
-  `send/create`, `gas-sponsor`) traen ejemplos de request/response completos
-  y suficientes para integrar sin adivinar.
+  las pruebas de integración se hicieron contra producción con saldo real
+  (por eso se probó con montos mínimos, ver sección de envío real abajo).
+- Lo que sí funcionó bien: `wallet/portfolio` y `config/chains` están
+  documentados con precisión y coinciden exactamente con la respuesta real
+  — se integraron sin fricción.
 
 ## Simplificaciones conscientes para 1 día
 

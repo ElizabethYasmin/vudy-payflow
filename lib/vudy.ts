@@ -54,6 +54,23 @@ export interface CreateSendInput {
   sendWallet?: string;
 }
 
+/**
+ * The real body shape `POST /channel/vudy/send/create` expects, discovered
+ * by trial and error against the live API — it does NOT match the shape
+ * documented at docs.vudy.services/docs/send/create (which describes
+ * `{ sendWallet, chain, token, recipients }` at the top level). See the
+ * "Feedback on documentation" section in the README for the full note.
+ */
+interface RealSendCreateBody {
+  targetAddress: string;
+  amount: number;
+  channelParams: {
+    chain: string;
+    token: string;
+    recipients: SendRecipient[];
+  };
+}
+
 export interface CreateSendResult {
   sendId: string;
   status: string;
@@ -204,21 +221,33 @@ export async function createSend(input: CreateSendInput): Promise<CreateSendResu
     };
   }
 
-  const res = await fetch(`${VUDY_BASE_URL}/channel/vudy/send/create`, {
-    method: "POST",
-    headers: patternBHeaders(),
-    body: JSON.stringify({
-      sendWallet: input.sendWallet,
+  // Primary recipient drives the top-level targetAddress/amount; the full
+  // list also goes into channelParams.recipients (required by the live
+  // schema even for a single recipient).
+  const primary = input.recipients[0];
+  const realBody: RealSendCreateBody = {
+    targetAddress: primary?.address ?? "",
+    amount: primary?.amount ?? 0,
+    channelParams: {
       chain: input.chain,
       token: input.token,
       recipients: input.recipients,
-      note: input.note,
-    }),
+    },
+  };
+
+  const res = await fetch(`${VUDY_BASE_URL}/channel/vudy/send/create`, {
+    method: "POST",
+    headers: patternBHeaders(),
+    body: JSON.stringify(realBody),
   });
 
   const body = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    // At the time of writing this consistently fails with
+    // LIB_PRICE_FETCH_04 ("Failed to get token price from Alchemy") — a
+    // dependency failure on Vudy's own backend, not something fixable from
+    // our side. Surfaced as-is so it shows up honestly in the audit trail.
     throw new Error(`Vudy send/create failed: ${res.status} ${JSON.stringify(body)}`);
   }
 
