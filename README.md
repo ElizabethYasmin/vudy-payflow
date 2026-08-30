@@ -48,10 +48,15 @@ B2B** porque:
 Documentación real usada: `https://docs.vudy.services`. Cliente en
 [`lib/vudy.ts`](./lib/vudy.ts).
 
-| Endpoint | Método | Patrón de auth | Uso en la app |
-|---|---|---|---|
-| `/v1/wallet/portfolio?wallets={addr}` | GET | A (`x-api-key`) | Balance mostrado en el dashboard |
-| `/channel/vudy/send/create` | POST | B (`x-api-key` + `x-profile-id` + `x-team-id`) | Liquidar el pago al aprobar una solicitud |
+| Endpoint | Método | Patrón de auth | Uso en la app | Estado |
+|---|---|---|---|---|
+| `/v1/wallet/portfolio?wallets={addr}` | GET | A (`x-api-key`) | Balance mostrado en el dashboard | ✅ real, verificado contra la cuenta de prueba |
+| `/v1/config/chains` | GET | A (`x-api-key`) | Poblar los selectores de chain/moneda en "Nueva solicitud" con datos reales de Vudy (en vez de opciones inventadas a mano) | ✅ real, verificado |
+| `/channel/vudy/send/create` | POST | B (`x-api-key` + `x-profile-id` + `x-team-id`) | Liquidar el pago al aprobar una solicitud | ⏳ mock — ver abajo |
+
+`portfolio` y `config/chains` solo requieren el Patrón A (la API key), así que
+ya están 100% conectados a la API real de Vudy — no dependen de que Vudy
+responda sobre `profile-id`/`team-id`.
 
 ### Modo mock
 
@@ -64,6 +69,13 @@ respuesta (`mock: true`, badge "(simulado)" en la UI, evento de auditoría
 "Simulado — sin credenciales/IDs de Vudy configurados"). En cuanto se
 confirmen los IDs, basta con completarlos en `.env.local` para que la misma
 llamada sea real.
+
+**Camino para desbloquearlo sin esperar soporte:** la doc documenta
+`GET /v1/profile` (Patrón C, devuelve `profile.id`) y el flujo de login por
+email (`POST /v1/auth/send-otp` → `POST /v1/auth/verify-otp`, que devuelve el
+arreglo `teams[]` con el `team-id`). En teoría se pueden obtener ambos IDs
+haciendo ese login una vez, sin depender de que Vudy responda por soporte —
+pendiente de intentarlo.
 
 ### Feedback honesto sobre la documentación (pedido explícito del reto)
 
@@ -111,6 +123,7 @@ app/
   new/page.tsx                 # formulario de nueva solicitud
   api/
     balance/route.ts           # GET balance (Vudy portfolio)
+    config/chains/route.ts     # GET chains/tokens soportados (Vudy config)
     requests/route.ts          # GET lista / POST crear
     requests/[id]/approve/     # POST aprobar -> liquida en Vudy
     requests/[id]/reject/      # POST rechazar

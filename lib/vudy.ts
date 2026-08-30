@@ -1,17 +1,18 @@
 /**
  * Thin client around the Vudy API (https://docs.vudy.services).
  *
- * Two endpoints are wired here:
+ * Three endpoints are wired here:
  *
  *  - GET  /v1/wallet/portfolio   (Auth Pattern A — api key only)
+ *  - GET  /v1/config/chains      (Auth Pattern A — api key only)
  *  - POST /channel/vudy/send/create  (Auth Pattern B — api key + profile + team)
  *
  * `VUDY_MOCK_MODE=true` (or missing credentials) makes every call return a
- * realistic fake response instead of hitting the real API. This exists
- * because Pattern B needs `x-profile-id` / `x-team-id`, which are not
- * documented at the time of writing (docs.vudy.services still has several
- * "coming soon" pages) — see README for the full note to the Vudy team.
- * Flip the env var once those values are confirmed to hit the real endpoint.
+ * realistic fake response instead of hitting the real API. Pattern A calls
+ * only need the API key, so they go live as soon as it's set. Pattern B
+ * needs `x-profile-id` / `x-team-id` too, which are not documented at the
+ * time of writing (docs.vudy.services still has several "coming soon"
+ * pages) — see README for the full note to the Vudy team.
  */
 
 const VUDY_BASE_URL = process.env.VUDY_BASE_URL || "https://api.vudy.app";
@@ -21,8 +22,9 @@ const VUDY_TEAM_ID = process.env.VUDY_TEAM_ID;
 
 const FORCE_MOCK = process.env.VUDY_MOCK_MODE === "true";
 
-// Pattern A (portfolio/balance) only needs the API key.
-const MOCK_PORTFOLIO = FORCE_MOCK || !VUDY_API_KEY;
+// Pattern A (portfolio, config) only needs the API key.
+const MOCK_PATTERN_A = FORCE_MOCK || !VUDY_API_KEY;
+const MOCK_PORTFOLIO = MOCK_PATTERN_A;
 
 // Pattern B (send/create) needs the API key *and* the team context.
 const MOCK_SEND = FORCE_MOCK || !VUDY_API_KEY || !VUDY_PROFILE_ID || !VUDY_TEAM_ID;
@@ -59,6 +61,47 @@ export interface CreateSendResult {
   raw?: unknown;
 }
 
+export interface ChainToken {
+  symbol: string;
+  accepted: boolean;
+  type: string; // "stable" | "native" | ...
+}
+
+export interface ChainInfo {
+  slug: string;
+  name: string;
+  chainId: number;
+  tokens: ChainToken[];
+}
+
+export interface ChainsResult {
+  chains: ChainInfo[];
+  mock: boolean;
+}
+
+const MOCK_CHAINS: ChainInfo[] = [
+  {
+    slug: "polygon",
+    name: "Polygon",
+    chainId: 137,
+    tokens: [
+      { symbol: "USDT", accepted: true, type: "stable" },
+      { symbol: "USDC", accepted: true, type: "stable" },
+      { symbol: "POL", accepted: true, type: "native" },
+    ],
+  },
+  {
+    slug: "ethereum",
+    name: "Ethereum",
+    chainId: 1,
+    tokens: [
+      { symbol: "USDT", accepted: true, type: "stable" },
+      { symbol: "USDC", accepted: true, type: "stable" },
+      { symbol: "ETH", accepted: true, type: "native" },
+    ],
+  },
+];
+
 function patternAHeaders(): HeadersInit {
   return { "x-api-key": VUDY_API_KEY ?? "" };
 }
@@ -77,7 +120,7 @@ export async function getPortfolio(walletAddress: string): Promise<PortfolioResu
   if (MOCK_PORTFOLIO) {
     return {
       wallet: walletAddress,
-      totalUsdBalance: 6.04,
+      totalUsdBalance: 6000.04,
       tokens: {
         USDT: { totalUsdBalance: 5, totalBalance: 5 },
         POL: { totalUsdBalance: 1.04, totalBalance: 1.04 },
@@ -103,6 +146,52 @@ export async function getPortfolio(walletAddress: string): Promise<PortfolioResu
     tokens: entry?.tokens ?? {},
     mock: false,
   };
+}
+
+/**
+ * GET /v1/config/chains
+ *
+ * Returns the chains + tokens Vudy actually supports. Used to populate the
+ * "chain"/"currency" pickers in the new-request form with real data instead
+ * of hardcoded options. The real response also includes a "fiat" pseudo-chain
+ * (currency codes, not blockchains) — we filter that out here since it's not
+ * relevant for an on-chain send.
+ */
+export async function getChains(): Promise<ChainsResult> {
+  if (MOCK_PATTERN_A) {
+    return { chains: MOCK_CHAINS, mock: true };
+  }
+
+  const res = await fetch(`${VUDY_BASE_URL}/v1/config/chains`, {
+    headers: patternAHeaders(),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Vudy config/chains request failed: ${res.status} ${await res.text()}`);
+  }
+
+  const body = await res.json();
+  const rawChains: Array<{
+    slug: string;
+    name: string;
+    chainId: number;
+    type: string;
+    tokens: Array<{ symbol: string; accepted: boolean; type: string }>;
+  }> = body?.data?.chains ?? [];
+
+  const chains = rawChains
+    .filter((c) => c.type === "EVM")
+    .map((c) => ({
+      slug: c.slug,
+      name: c.name,
+      chainId: c.chainId,
+      tokens: c.tokens
+        .filter((t) => t.accepted)
+        .map((t) => ({ symbol: t.symbol, accepted: t.accepted, type: t.type })),
+    }));
+
+  return { chains, mock: false };
 }
 
 /** POST /channel/vudy/send/create */

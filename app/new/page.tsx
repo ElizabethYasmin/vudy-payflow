@@ -1,12 +1,49 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import type { ChainInfo } from "@/lib/vudy";
 
 export default function NewRequestPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [chains, setChains] = useState<ChainInfo[]>([]);
+  const [chainsMock, setChainsMock] = useState(true);
+  const [chainsLoading, setChainsLoading] = useState(true);
+  const [selectedChain, setSelectedChain] = useState<string>("");
+  const [selectedToken, setSelectedToken] = useState<string>("");
+
+  // GET /api/config/chains -> Vudy's GET /v1/config/chains (Auth Pattern A).
+  // Populates the pickers below with real supported chains/tokens instead
+  // of hardcoded options.
+  useEffect(() => {
+    fetch("/api/config/chains")
+      .then((res) => res.json())
+      .then((data: { chains: ChainInfo[]; mock: boolean }) => {
+        setChains(data.chains ?? []);
+        setChainsMock(Boolean(data.mock));
+        const firstChain = data.chains?.[0];
+        if (firstChain) {
+          setSelectedChain(firstChain.slug);
+          setSelectedToken(firstChain.tokens[0]?.symbol ?? "");
+        }
+      })
+      .catch(() => setChainsMock(true))
+      .finally(() => setChainsLoading(false));
+  }, []);
+
+  const tokensForSelectedChain = useMemo(
+    () => chains.find((c) => c.slug === selectedChain)?.tokens ?? [],
+    [chains, selectedChain]
+  );
+
+  function onChainChange(slug: string) {
+    setSelectedChain(slug);
+    const tokens = chains.find((c) => c.slug === slug)?.tokens ?? [];
+    setSelectedToken(tokens[0]?.symbol ?? "");
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -18,8 +55,8 @@ export default function NewRequestPage() {
       providerName: formData.get("providerName"),
       destinationWallet: formData.get("destinationWallet"),
       amount: Number(formData.get("amount")),
-      currency: formData.get("currency"),
-      chain: formData.get("chain"),
+      currency: selectedToken,
+      chain: selectedChain,
       reason: formData.get("reason"),
       requestedBy: formData.get("requestedBy"),
     };
@@ -46,8 +83,12 @@ export default function NewRequestPage() {
       <h1 className="mb-1 text-2xl font-semibold tracking-tight">
         Nueva solicitud de pago
       </h1>
-      <p className="mb-6 text-sm text-zinc-500">
+      <p className="mb-1 text-sm text-zinc-500">
         Al aprobarla, el backend llama a la API de Vudy para liquidar el pago.
+      </p>
+      <p className="mb-6 text-xs text-zinc-400">
+        Chain y token vienen de <code className="font-mono">GET /v1/config/chains</code> de Vudy
+        {chainsMock ? " (simulado — falta VUDY_API_KEY)" : " (datos reales)"}.
       </p>
 
       <form onSubmit={onSubmit} className="space-y-4">
@@ -61,9 +102,40 @@ export default function NewRequestPage() {
         />
         <div className="grid grid-cols-2 gap-4">
           <Field label="Monto" name="amount" type="number" step="0.01" required placeholder="25" />
-          <Field label="Moneda" name="currency" required placeholder="USDT" defaultValue="USDT" />
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-zinc-700">Moneda</span>
+            <select
+              value={selectedToken}
+              onChange={(e) => setSelectedToken(e.target.value)}
+              disabled={chainsLoading || tokensForSelectedChain.length === 0}
+              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+            >
+              {tokensForSelectedChain.map((t) => (
+                <option key={t.symbol} value={t.symbol}>
+                  {t.symbol} {t.type === "native" ? "(nativo)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-        <Field label="Chain" name="chain" required placeholder="polygon" defaultValue="polygon" />
+
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-zinc-700">Chain</span>
+          <select
+            value={selectedChain}
+            onChange={(e) => onChainChange(e.target.value)}
+            disabled={chainsLoading || chains.length === 0}
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+          >
+            {chains.map((c) => (
+              <option key={c.slug} value={c.slug}>
+                {c.name} ({c.slug})
+              </option>
+            ))}
+          </select>
+        </label>
+
         <Field label="Motivo" name="reason" placeholder="Pago de factura #..." />
         <Field
           label="Solicitado por"
@@ -76,7 +148,7 @@ export default function NewRequestPage() {
 
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || chainsLoading}
           className="w-full rounded-md bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
         >
           {submitting ? "Creando..." : "Crear solicitud"}
