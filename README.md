@@ -78,12 +78,12 @@ respuesta (`mock: true`, badge "(simulado)" en la UI, evento de auditoría
 confirmen los IDs, basta con completarlos en `.env.local` para que la misma
 llamada sea real.
 
-**Camino para desbloquearlo sin esperar soporte:** la doc documenta
-`GET /v1/profile` (Patrón C, devuelve `profile.id`) y el flujo de login por
-email (`POST /v1/auth/send-otp` → `POST /v1/auth/verify-otp`, que devuelve el
-arreglo `teams[]` con el `team-id`). En teoría se pueden obtener ambos IDs
-haciendo ese login una vez, sin depender de que Vudy responda por soporte —
-pendiente de intentarlo.
+**Camino para desbloquearlo sin esperar soporte (✅ funcionó):** la doc
+documenta `GET /v1/profile` (Patrón C, devuelve `profile.id`) y el flujo de
+login por email (`POST /v1/auth/send-otp` → `POST /v1/auth/verify-otp`, que
+devuelve el arreglo `teams[]` con el `team-id`). Se hizo ese login una vez y
+se obtuvieron ambos IDs sin depender de que Vudy respondiera por soporte —
+ya están en `.env.local` y el Patrón B está activo.
 
 ### Feedback honesto sobre la documentación (pedido explícito del reto)
 
@@ -102,16 +102,19 @@ pendiente de intentarlo.
   Esto se descubrió por prueba y error (leyendo los mensajes de validación
   del propio servidor), no porque la doc lo explicara. `lib/vudy.ts` ya
   arma el body con el formato real.
-- **Segundo hallazgo — el endpoint falla consistentemente en producción.**
-  Con el formato correcto, `send/create` devuelve `500
+- **Segundo hallazgo — el endpoint falla consistentemente en producción, en
+  más de una cadena.** Con el formato correcto, `send/create` devuelve `500
   LIB_PRICE_FETCH_04: "Failed to get token price from Alchemy"` — su backend
-  intenta cotizar el token nativo (`POL`) contra un proveedor externo
-  (Alchemy) y esa llamada devuelve HTML en vez de JSON. Se probó dos veces
-  con unos segundos de diferencia, mismo error ambas veces → no parece un
-  hiccup pasajero. **Esto no se pudo resolver desde el lado del cliente**:
-  es un bug/caída de una dependencia en la infraestructura de Vudy. Se
-  verificó con el balance antes/después (`GET /v1/wallet/portfolio`) que
-  ningún fondo se movió — el error ocurre antes de tocar la blockchain.
+  intenta cotizar el token nativo de la cadena contra un proveedor externo
+  (Alchemy) y esa llamada devuelve HTML en vez de JSON. Reproducido 3 veces
+  en total, con dos herramientas distintas (`curl` y Postman) y dos cadenas
+  distintas: `polygon` (falla cotizando `POL`) y `avalanche` (falla
+  cotizando `AVAX`) — mismo error de fondo en ambos casos, lo que descarta
+  que sea algo específico de una sola cadena. **Esto no se pudo resolver
+  desde el lado del cliente**: es un bug/caída de una dependencia en la
+  infraestructura de Vudy. Se verificó con el balance antes/después
+  (`GET /v1/wallet/portfolio`) que ningún fondo se movió — el error ocurre
+  antes de tocar la blockchain. Reportado directamente a `contact@vudy.me`.
 - Varias páginas de referencia clave devuelven un placeholder ("esta página
   estará disponible pronto"): *Quick Start*, *Create Request* (Payment
   Requests), *Send Preview*, *Response Format*, *Environments*, *Wallet
