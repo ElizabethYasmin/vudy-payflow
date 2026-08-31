@@ -6,7 +6,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const existing = getRequest(id);
+  const existing = await getRequest(id);
 
   if (!existing) {
     return NextResponse.json({ error: "Solicitud no encontrada" }, { status: 404 });
@@ -19,6 +19,6 @@ export async function POST(
     );
   }
 
-  const rejected = updateStatus(id, "rejected", "Aprobador");
+  const rejected = await updateStatus(id, "rejected", "Aprobador");
   return NextResponse.json({ request: rejected });
 }

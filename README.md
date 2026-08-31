@@ -42,8 +42,8 @@ B2B** porque:
 - **Next.js 16 (App Router) + TypeScript** — frontend y backend (API routes)
   en un solo proyecto: exactamente el stack "imprescindible" del rol.
 - **Tailwind CSS** para la UI.
-- **Estado en memoria** (`lib/store.ts`) en vez de PostgreSQL — ver
-  [Simplificaciones](#simplificaciones-conscientes-para-1-día) abajo.
+- **PostgreSQL** (Vercel Storage / Neon) para `payment_requests` + `audit_log` —
+  ver [Actualización: persistencia real](#actualización-persistencia-real-con-postgresql) abajo.
 
 ## Integración con la API de Vudy
 
@@ -137,11 +137,32 @@ ya están en `.env.local` y el Patrón B está activo.
   documentados con precisión y coinciden exactamente con la respuesta real
   — se integraron sin fricción.
 
+## Actualización: persistencia real con PostgreSQL
+
+La primera versión guardaba el estado en memoria (`globalThis`). Al probar el
+deploy en Vercel, se observó el problema real que esa simplificación predecía:
+al ser funciones serverless (cada invocación puede correr en una instancia
+distinta y efímera), aprobar una solicitud podía devolver `404` porque la
+instancia que atendía el clic nunca había visto la instancia que la creó.
+
+Se resolvió conectando **PostgreSQL** (Vercel Storage → Neon, plan gratis):
+tablas `payment_requests` + `audit_log`, mismo modelo que ya existía en
+`lib/types.ts`. Gracias a que las rutas de la API nunca tocaban el
+almacenamiento directamente — siempre llamaban a funciones con nombre en
+`lib/store.ts` (`listRequests`, `createRequest`, `updateStatus`) — migrar de
+memoria a base de datos solo significó reescribir ese archivo (ahora usando
+`pg` con SQL parametrizado) y agregar `await` en las rutas; ni el frontend ni
+la forma de llamar a esas funciones cambiaron.
+
+**Verificado, no solo dicho:** se creó una solicitud, se mató el proceso del
+servidor local y se levantó uno nuevo — el proceso nuevo encontró la
+solicitud del proceso anterior, confirmando que el problema de estado
+efímero está resuelto.
+
 ## Simplificaciones conscientes para 1 día
 
 | Simplificación | Qué se haría en producción |
 |---|---|
-| Estado en memoria (`globalThis`) | PostgreSQL: tablas `payment_requests` + `audit_log`, con el mismo modelo de `lib/types.ts`. **Observado en el deploy de Vercel**: al ser funciones serverless (cada invocación puede correr en una instancia distinta y efímera), el estado en memoria puede reiniciarse entre visitas — es exactamente el escenario que justifica esta simplificación, no algo que solo se argumenta en teoría |
 | Una sola aprobación liquida | Regla configurable de N aprobadores (ej. 2 de 3), con roles reales y autenticación |
 | Sin autenticación de usuarios | Auth real (ej. NextAuth) + roles (solicitante/aprobador) por equipo |
 | Llamada a Vudy sin reintentos | Idempotencia explícita (evitar liquidar dos veces si se reintenta la aprobación) + circuit breaker ante fallas repetidas del proveedor |

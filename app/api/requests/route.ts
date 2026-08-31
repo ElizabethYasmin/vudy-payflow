@@ -3,7 +3,7 @@ import { createRequest, listRequests } from "@/lib/store";
 import type { CreatePaymentRequestInput } from "@/lib/types";
 
 export async function GET() {
-  return NextResponse.json({ requests: listRequests() });
+  return NextResponse.json({ requests: await listRequests() });
 }
 
 export async function POST(request: NextRequest) {
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const created = createRequest({
+  const created = await createRequest({
     providerName: body.providerName,
     destinationWallet: body.destinationWallet,
     amount: body.amount,

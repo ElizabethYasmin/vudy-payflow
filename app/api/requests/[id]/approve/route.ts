@@ -15,7 +15,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const existing = getRequest(id);
+  const existing = await getRequest(id);
 
   if (!existing) {
     return NextResponse.json({ error: "Solicitud no encontrada" }, { status: 404 });
@@ -28,7 +28,7 @@ export async function POST(
     );
   }
 
-  updateStatus(id, "approved", "Aprobador");
+  await updateStatus(id, "approved", "Aprobador");
 
   try {
     const send = await createSend({
@@ -38,7 +38,7 @@ export async function POST(
       note: `Pago aprobado: ${existing.reason || existing.providerName}`,
     });
 
-    const settled = updateStatus(
+    const settled = await updateStatus(
       id,
       "settled",
       "Sistema (Vudy)",
@@ -48,7 +48,7 @@ export async function POST(
 
     return NextResponse.json({ request: settled, vudy: send });
   } catch (error) {
-    const failed = updateStatus(
+    const failed = await updateStatus(
       id,
       "failed",
       "Sistema (Vudy)",
